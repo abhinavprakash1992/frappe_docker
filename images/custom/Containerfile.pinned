@@ -1,0 +1,189 @@
+# Commit-pinned ERPNext v15 image — reproduces erpnext-prod exactly.
+# Derived from frappe_docker images/custom/Containerfile, with:
+#  - v15-compatible runtime (Python 3.11.9, Node 20.20.2, wkhtmltopdf 0.12.6)
+#  - every app fetched then PINNED to its exact prod commit (fetch-by-SHA)
+#  - prod uncommitted customizations re-applied as patches
+# Build context = frappe_docker repo root (COPY resources/core/... needs it).
+ARG PYTHON_VERSION=3.11.9
+ARG DEBIAN_BASE=bookworm
+FROM python:${PYTHON_VERSION}-slim-${DEBIAN_BASE} AS base
+
+COPY resources/core/nginx/nginx-template.conf /templates/nginx/frappe.conf.template
+COPY resources/core/nginx/nginx-entrypoint.sh /usr/local/bin/nginx-entrypoint.sh
+COPY resources/core/nginx/security_headers.conf /etc/nginx/snippets/security_headers.conf
+
+ARG WKHTMLTOPDF_VERSION=0.12.6.1-3
+ARG WKHTMLTOPDF_DISTRO=bookworm
+ARG INSTALL_CHROMIUM=true
+
+ARG NODE_VERSION=20.20.2
+ENV NVM_DIR=/home/frappe/.nvm
+ENV PATH=${NVM_DIR}/versions/node/v${NODE_VERSION}/bin/:${PATH}
+
+RUN useradd -ms /bin/bash frappe \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y \
+    curl \
+    git \
+    vim \
+    nginx \
+    gettext-base \
+    file \
+    libpango-1.0-0 \
+    libharfbuzz0b \
+    libpangoft2-1.0-0 \
+    libpangocairo-1.0-0 \
+    restic \
+    gpg \
+    mariadb-client \
+    less \
+    libpq-dev \
+    postgresql-client \
+    wait-for-it \
+    jq \
+    media-types \
+    && mkdir -p ${NVM_DIR} \
+    && curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash \
+    && . ${NVM_DIR}/nvm.sh \
+    && nvm install ${NODE_VERSION} \
+    && nvm use v${NODE_VERSION} \
+    && npm install -g yarn \
+    && corepack enable pnpm \
+    && nvm alias default v${NODE_VERSION} \
+    && rm -rf ${NVM_DIR}/.cache \
+    && echo 'export NVM_DIR="/home/frappe/.nvm"' >>/home/frappe/.bashrc \
+    && echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm' >>/home/frappe/.bashrc \
+    && echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion' >>/home/frappe/.bashrc \
+    && if [ "$(uname -m)" = "aarch64" ]; then export ARCH=arm64; fi \
+    && if [ "$(uname -m)" = "x86_64" ]; then export ARCH=amd64; fi \
+    && downloaded_file=wkhtmltox_${WKHTMLTOPDF_VERSION}.${WKHTMLTOPDF_DISTRO}_${ARCH}.deb \
+    && curl -sLO https://github.com/wkhtmltopdf/packaging/releases/download/$WKHTMLTOPDF_VERSION/$downloaded_file \
+    && apt-get install -y ./$downloaded_file \
+    && rm $downloaded_file \
+    && if [ "$INSTALL_CHROMIUM" != "false" ]; then \
+        DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
+        chromium-headless-shell; \
+    fi \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -fr /etc/nginx/sites-enabled/default \
+    && mkdir -p /etc/nginx/snippets \
+    && pip3 install frappe-bench \
+    && sed -i '/user www-data/d' /etc/nginx/nginx.conf \
+    && ln -sf /dev/stdout /var/log/nginx/access.log && ln -sf /dev/stderr /var/log/nginx/error.log \
+    && touch /run/nginx.pid \
+    && chown -R frappe:frappe /etc/nginx/conf.d \
+    && chown -R frappe:frappe /etc/nginx/nginx.conf \
+    && chown -R frappe:frappe /etc/nginx/snippets \
+    && chown -R frappe:frappe /var/log/nginx \
+    && chown -R frappe:frappe /var/lib/nginx \
+    && chown -R frappe:frappe /run/nginx.pid \
+    && chmod 755 /usr/local/bin/nginx-entrypoint.sh \
+    && chmod 644 /templates/nginx/frappe.conf.template
+
+
+FROM base AS builder
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
+    wget \
+    libcairo2-dev \
+    libpango1.0-dev \
+    libjpeg-dev \
+    libgif-dev \
+    librsvg2-dev \
+    libpq-dev \
+    libffi-dev \
+    liblcms2-dev \
+    libldap2-dev \
+    libmariadb-dev \
+    libsasl2-dev \
+    libtiff5-dev \
+    libwebp-dev \
+    pkg-config \
+    redis-tools \
+    rlwrap \
+    tk8.6-dev \
+    cron \
+    gcc \
+    build-essential \
+    libbz2-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+USER frappe
+
+ARG FRAPPE_BRANCH=version-15
+ARG FRAPPE_PATH=https://github.com/frappe/frappe
+ARG FRAPPE_COMMIT=665fce241eeed17b8869168cd9103d795f39e3e1
+ARG CACHE_BUST=""
+
+COPY --chown=frappe:frappe apps-pinned.txt /opt/frappe/apps-pinned.txt
+COPY --chown=frappe:frappe patches /opt/frappe/patches
+
+ENV PIP=/home/frappe/frappe-bench/env/bin/python
+
+RUN : "${CACHE_BUST}" \
+  && echo "=== STEP 1: bench init frappe (no app pip yet) ===" \
+  && bench init \
+    --frappe-branch=${FRAPPE_BRANCH} \
+    --frappe-path=${FRAPPE_PATH} \
+    --no-procfile \
+    --no-backups \
+    --skip-redis-config-generation \
+    --skip-assets \
+    --verbose \
+    /home/frappe/frappe-bench \
+  && cd /home/frappe/frappe-bench \
+  && echo "=== STEP 2: PIN frappe to exact prod commit, then clone+PIN each app BEFORE any pip install ===" \
+  && git -C apps/frappe fetch --depth 1 ${FRAPPE_PATH} ${FRAPPE_COMMIT} \
+  && git -C apps/frappe checkout --detach ${FRAPPE_COMMIT} \
+  && while IFS='|' read -r app url branch commit; do \
+        [ -z "$app" ] && continue; \
+        echo ">>> clone $app ($branch) then pin @ $commit"; \
+        git clone --depth 1 --branch "$branch" "$url" "apps/$app" || exit 1; \
+        git -C "apps/$app" fetch --depth 1 "$url" "$commit" || exit 1; \
+        git -C "apps/$app" checkout --detach "$commit" || exit 1; \
+     done < /opt/frappe/apps-pinned.txt \
+  && echo "=== STEP 3: re-apply prod uncommitted customizations ===" \
+  && git -C apps/erpnext apply --verbose /opt/frappe/patches/erpnext_serial_no.patch \
+  && git -C apps/crm apply --verbose /opt/frappe/patches/crm_auto_imports.patch \
+  && echo "=== STEP 4: register apps (prod apps.txt order) ===" \
+  && printf 'frappe\ncrm\ninsights\nerpnext\nfrappe_whatsapp\npayments\nindia_compliance\ntelephony\necommerce_integrations\nhelpdesk\n' > sites/apps.txt \
+  && echo "=== STEP 5: pip-install every app AT ITS PINNED COMMIT (v15-compatible code) ===" \
+  && for app in $(cat sites/apps.txt); do \
+        echo ">>> pip install -e apps/$app"; \
+        ${PIP} -m pip install --quiet --upgrade -e "apps/$app" || exit 1; \
+     done \
+  && echo "=== STEP 6: node deps + build assets at pinned commits ===" \
+  && bench setup requirements --node \
+  && bench build \
+  && echo "=== FINAL PINNED HEADS (verify against prod) ===" \
+  && for a in $(ls apps); do printf '%-26s %s\n' "$a" "$(git -C apps/$a rev-parse HEAD)"; done \
+  && echo "{}" > sites/common_site_config.json \
+  && find apps -mindepth 1 -path "*/.git" | xargs rm -fr
+
+
+FROM base AS backend
+
+USER frappe
+
+COPY --from=builder --chown=frappe:frappe /home/frappe/frappe-bench /home/frappe/frappe-bench
+
+WORKDIR /home/frappe/frappe-bench
+
+RUN cp -r /home/frappe/frappe-bench/sites/assets /home/frappe/frappe-bench/assets && \
+  rm -rf /home/frappe/frappe-bench/sites/assets
+
+VOLUME [ \
+  "/home/frappe/frappe-bench/sites", \
+  "/home/frappe/frappe-bench/logs" \
+]
+
+USER root
+COPY resources/core/main-entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 755 /usr/local/bin/entrypoint.sh
+COPY resources/core/start.sh /usr/local/bin/start.sh
+RUN chmod 755 /usr/local/bin/start.sh
+
+USER frappe
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["start.sh"]

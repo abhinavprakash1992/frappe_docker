@@ -1,0 +1,131 @@
+# Single-VM ERPNext stack for erpnext-new — custom commit-pinned image.
+# STAGING SAFETY: scheduler + queue workers are in the "cutover" profile and are
+# NOT started during staging, so the restored prod copy runs ZERO background
+# automation (no scheduled email/report, no integration sync, no queue flush).
+# Bring them up only at cutover:  docker compose --profile cutover up -d
+#
+# Frontend binds 127.0.0.1:8080; host nginx (with the copied Let's Encrypt cert)
+# terminates 80/443 for erp.edify.club and proxies to it (Cloudflare sits in front).
+
+x-image: &image
+  image: erpnext-pinned:v15
+  pull_policy: never
+  restart: unless-stopped
+
+x-backend: &backend
+  <<: *image
+  depends_on:
+    configurator:
+      condition: service_completed_successfully
+  volumes:
+    - sites:/home/frappe/frappe-bench/sites
+    - logs:/home/frappe/frappe-bench/logs
+
+services:
+  db:
+    image: mariadb:10.6
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed
+      - --max-allowed-packet=1073741824
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      retries: 15
+
+  redis-cache:
+    image: redis:6.2-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-cache-data:/data
+
+  redis-queue:
+    image: redis:6.2-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-queue-data:/data
+
+  configurator:
+    <<: *backend
+    restart: "no"
+    depends_on: {}
+    entrypoint: ["bash", "-c"]
+    command:
+      - >
+        ls -1 apps > sites/apps.txt;
+        bench set-config -g db_host $$DB_HOST;
+        bench set-config -gp db_port $$DB_PORT;
+        bench set-config -g redis_cache "redis://$$REDIS_CACHE";
+        bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
+        bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
+        bench set-config -gp socketio_port $$SOCKETIO_PORT;
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      SOCKETIO_PORT: 9000
+
+  backend:
+    <<: *backend
+    environment:
+      GUNICORN_WORKERS: 4
+      GUNICORN_TIMEOUT: 120
+
+  websocket:
+    <<: *image
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    command: ["node", "/home/frappe/frappe-bench/apps/frappe/socketio.js"]
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+
+  frontend:
+    <<: *image
+    command: ["nginx-entrypoint.sh"]
+    environment:
+      BACKEND: backend:8000
+      SOCKETIO: websocket:9000
+      FRAPPE_SITE_NAME_HEADER: erp.edify.club
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+      PROXY_READ_TIMEOUT: 120
+      CLIENT_MAX_BODY_SIZE: 50m
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      - backend
+      - websocket
+
+  # ---- cutover-only services (background automation) — NOT started in staging ----
+  scheduler:
+    <<: *backend
+    command: ["bench", "schedule"]
+    profiles: ["cutover"]
+
+  queue-short:
+    <<: *backend
+    command: ["bench", "worker", "--queue", "short,default"]
+    profiles: ["cutover"]
+
+  queue-long:
+    <<: *backend
+    command: ["bench", "worker", "--queue", "long,default,short"]
+    profiles: ["cutover"]
+
+volumes:
+  sites:
+  logs:
+  db-data:
+  redis-cache-data:
+  redis-queue-data:

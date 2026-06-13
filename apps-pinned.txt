@@ -1,0 +1,9 @@
+payments|https://github.com/frappe/payments|develop|3cebd9425e414e4c3419a374c616727c5d94b5ea
+erpnext|https://github.com/frappe/erpnext|version-15|1d14ba16398db3a220873509565c60f2932bed81
+india_compliance|https://github.com/resilient-tech/india-compliance|version-15|d887c828df0cd126be7d350b616b0165d6d2783d
+crm|https://github.com/frappe/crm|develop|b131d3622026798e59ceb67a1fa405dca8448dea
+insights|https://github.com/frappe/insights|develop|344894407cbac7c5d7798a23c8e21e86d53caf0d
+telephony|https://github.com/frappe/telephony|develop|d4ee5b44b52e2fc5ab19b8177d8865df879cb764
+ecommerce_integrations|https://github.com/frappe/ecommerce_integrations|develop|ba8ac5055fd68a095c6861d72faaa7b24a90a939
+frappe_whatsapp|https://github.com/shridarpatil/frappe_whatsapp|master|0a84e438dc8cb36faa63713de8c28d39a20a03cd
+helpdesk|https://github.com/frappe/helpdesk|version-14|db5b0cf638f4cbe66ad9a530ed3b4972043b18c3
