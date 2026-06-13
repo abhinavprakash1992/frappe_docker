@@ -1,8 +1,8 @@
 diff --git a/erpnext/stock/doctype/serial_no/serial_no.json b/erpnext/stock/doctype/serial_no/serial_no.json
-index 9dfa2cc..56e2219 100644
+index 9dfa2cc..ca34057 100644
 --- a/erpnext/stock/doctype/serial_no/serial_no.json
 +++ b/erpnext/stock/doctype/serial_no/serial_no.json
-@@ -28,6 +28,11 @@
+@@ -28,6 +28,18 @@
    "column_break_24",
    "location",
    "employee",
@@ -11,10 +11,17 @@ index 9dfa2cc..56e2219 100644
 +  "delivery_document_no",
 +  "delivery_date",
 +  "delivery_time",
++  "supplier_details",
++  "supplier",
++  "supplier_name",
++  "purchase_document_type",
++  "purchase_document_no",
++  "purchase_date",
++  "purchase_time",
    "warranty_amc_details",
    "column_break6",
    "warranty_expiry_date",
-@@ -153,6 +158,44 @@
+@@ -153,6 +165,93 @@
     "options": "Employee",
     "read_only": 1
    },
@@ -53,6 +60,55 @@ index 9dfa2cc..56e2219 100644
 +    "fieldname": "delivery_time",
 +    "fieldtype": "Time",
 +    "label": "Delivery Time",
++    "no_copy": 1,
++    "read_only": 1
++   },
++   {
++    "fieldname": "supplier_details",
++    "fieldtype": "Section Break",
++    "label": "Supplier Details"
++   },
++   {
++    "fieldname": "supplier",
++    "fieldtype": "Link",
++    "label": "Supplier",
++    "no_copy": 1,
++    "options": "Supplier"
++   },
++   {
++    "fieldname": "supplier_name",
++    "fieldtype": "Data",
++    "label": "Supplier Name",
++    "no_copy": 1,
++    "read_only": 1
++   },
++   {
++    "fieldname": "purchase_document_type",
++    "fieldtype": "Link",
++    "label": "Purchase Document Type",
++    "no_copy": 1,
++    "options": "DocType",
++    "read_only": 1
++   },
++   {
++    "fieldname": "purchase_document_no",
++    "fieldtype": "Dynamic Link",
++    "label": "Purchase Document No",
++    "no_copy": 1,
++    "options": "purchase_document_type",
++    "read_only": 1
++   },
++   {
++    "fieldname": "purchase_date",
++    "fieldtype": "Date",
++    "label": "Purchase Date",
++    "no_copy": 1,
++    "read_only": 1
++   },
++   {
++    "fieldname": "purchase_time",
++    "fieldtype": "Time",
++    "label": "Purchase Time",
 +    "no_copy": 1,
 +    "read_only": 1
 +   },
