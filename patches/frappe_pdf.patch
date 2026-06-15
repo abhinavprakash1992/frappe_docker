@@ -1,0 +1,14 @@
+diff --git a/frappe/utils/pdf.py b/frappe/utils/pdf.py
+index 7f76670..70640c6 100644
+--- a/frappe/utils/pdf.py
++++ b/frappe/utils/pdf.py
+@@ -151,7 +151,8 @@ def prepare_options(html, options):
+ 			"quiet": None,
+ 			# 'no-outline': None,
+ 			"encoding": "UTF-8",
+-			# 'load-error-handling': 'ignore'
++			"load-error-handling": "ignore",
++			"load-media-error-handling": "ignore",
+ 		}
+ 	)
+ 

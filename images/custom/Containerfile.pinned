@@ -146,6 +146,7 @@ RUN : "${CACHE_BUST}" \
   && echo "=== STEP 3: re-apply prod uncommitted customizations ===" \
   && git -C apps/erpnext apply --verbose /opt/frappe/patches/erpnext_serial_no.patch \
   && git -C apps/crm apply --verbose /opt/frappe/patches/crm_auto_imports.patch \
+  && git -C apps/frappe apply --verbose /opt/frappe/patches/frappe_pdf.patch \
   && echo "=== STEP 4: register apps (prod apps.txt order) ===" \
   && printf 'frappe\ncrm\ninsights\nerpnext\nfrappe_whatsapp\npayments\nindia_compliance\ntelephony\necommerce_integrations\nhelpdesk\n' > sites/apps.txt \
   && echo "=== STEP 5: pip-install every app AT ITS PINNED COMMIT (v15-compatible code) ===" \
